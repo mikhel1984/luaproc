@@ -10,7 +10,7 @@ LUA_LIBDIR=/usr/lib/x86_64-linux-gnu/
 LUA_CPATH=/usr/lib/lua/${LUA_VERSION}
 
 # standard makefile variables
-CC=gcc
+CC=gcc -std=c11
 SRCDIR=src
 BINDIR=bin
 CFLAGS=-c -O2 -Wall -fPIC -I${LUA_INCDIR}

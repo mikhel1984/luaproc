@@ -3,7 +3,7 @@
 ** See Copyright Notice in luaproc.h
 */
 
-#include <pthread.h>
+#include <threads.h>
 #include <stdlib.h>
 #include <lua.h>
 #include <lauxlib.h>
@@ -34,10 +34,10 @@
  *******************/
 
 /* channel list mutex */
-static pthread_mutex_t mutex_channel_list = PTHREAD_MUTEX_INITIALIZER;
+static mtx_t mutex_channel_list;  // destroy!
 
 /* recycle list mutex */
-static pthread_mutex_t mutex_recycle_list = PTHREAD_MUTEX_INITIALIZER;
+static mtx_t mutex_recycle_list;
 
 /* recycled lua process list */
 static list recycle_list;
@@ -53,10 +53,10 @@ static lua_State *chanls = NULL;
 static luaproc mainlp;
 
 /* main state matched a send/recv operation conditional variable */
-pthread_cond_t cond_mainls_sendrecv = PTHREAD_COND_INITIALIZER;
+cnd_t cond_mainls_sendrecv;
 
 /* main state communication mutex */
-static pthread_mutex_t mutex_mainls = PTHREAD_MUTEX_INITIALIZER;
+static mtx_t mutex_mainls;
 
 /***********************
  * register prototypes *
@@ -92,8 +92,8 @@ struct stluaproc {
 struct stchannel {
   list send;
   list recv;
-  pthread_mutex_t mutex;
-  pthread_cond_t can_be_used;
+  mtx_t mutex;
+  cnd_t can_be_used;
 };
 
 /* luaproc function registration array */
@@ -160,7 +160,7 @@ static channel *channel_create( const char *cname ) {
   channel *chan;
 
   /* get exclusive access to channels list */
-  pthread_mutex_lock( &mutex_channel_list );
+  mtx_lock( &mutex_channel_list );
 
   /* create new channel and register its name */
   lua_getglobal( chanls, LUAPROC_CHANNELS_TABLE );
@@ -171,11 +171,11 @@ static channel *channel_create( const char *cname ) {
   /* initialize channel struct */
   list_init( &chan->send );
   list_init( &chan->recv );
-  pthread_mutex_init( &chan->mutex, NULL );
-  pthread_cond_init( &chan->can_be_used, NULL );
+  mtx_init( &chan->mutex, mtx_plain );
+  cnd_init( &chan->can_be_used );
 
   /* release exclusive access to channels list */
-  pthread_mutex_unlock( &mutex_channel_list );
+  mtx_unlock( &mutex_channel_list );
 
   return chan;
 }
@@ -206,7 +206,7 @@ static channel *channel_locked_get( const char *chname ) {
   channel *chan;
 
   /* get exclusive access to channels list */
-  pthread_mutex_lock( &mutex_channel_list );
+  mtx_lock( &mutex_channel_list );
 
   /*
      try to get channel and lock it; if lock fails, release external
@@ -215,12 +215,12 @@ static channel *channel_locked_get( const char *chname ) {
      the channel may be destroyed, so it must try to get it again.
   */
   while ((( chan = channel_unlocked_get( chname )) != NULL ) &&
-        ( pthread_mutex_trylock( &chan->mutex ) != 0 )) {
-    pthread_cond_wait( &chan->can_be_used, &mutex_channel_list );
+        ( mtx_trylock( &chan->mutex ) != 0 )) {
+    cnd_wait( &chan->can_be_used, &mutex_channel_list );
   }
 
   /* release exclusive access to channels list */
-  pthread_mutex_unlock( &mutex_channel_list );
+  mtx_unlock( &mutex_channel_list );
 
   return chan;
 }
@@ -233,13 +233,13 @@ static channel *channel_locked_get( const char *chname ) {
 void luaproc_unlock_channel( channel *chan ) {
 
   /* get exclusive access to channels list */
-  pthread_mutex_lock( &mutex_channel_list );
+  mtx_lock( &mutex_channel_list );
   /* release exclusive access to operate on a particular channel */
-  pthread_mutex_unlock( &chan->mutex );
+  mtx_unlock( &chan->mutex );
   /* signal that a particular channel can be used */
-  pthread_cond_signal( &chan->can_be_used );
+  cnd_signal( &chan->can_be_used );
   /* release exclusive access to channels list */
-  pthread_mutex_unlock( &mutex_channel_list );
+  mtx_unlock( &mutex_channel_list );
 
 }
 
@@ -247,7 +247,7 @@ void luaproc_unlock_channel( channel *chan ) {
 void luaproc_recycle_insert( luaproc *lp ) {
 
   /* get exclusive access to recycled lua processes list */
-  pthread_mutex_lock( &mutex_recycle_list );
+  mtx_lock( &mutex_recycle_list );
 
   /* is recycle list full? */
   if ( list_count( &recycle_list ) >= recyclemax ) {
@@ -259,7 +259,7 @@ void luaproc_recycle_insert( luaproc *lp ) {
   }
 
   /* release exclusive access to recycled lua processes list */
-  pthread_mutex_unlock( &mutex_recycle_list );
+  mtx_unlock( &mutex_recycle_list );
 }
 
 /* queue a lua process that tried to send a message */
@@ -369,6 +369,13 @@ static luaproc *luaproc_new( lua_State *L ) {
 /* join schedule workers (called before exiting Lua) */
 static int luaproc_join_workers( lua_State *L ) {
   sched_join_workers();
+
+  /* destroy elements */
+  mtx_destroy(&mutex_channel_list);
+  mtx_destroy(&mutex_recycle_list);
+  mtx_destroy(&mutex_mainls);
+  cnd_destroy(&cond_mainls_sendrecv);
+
   lua_close( chanls );
   return 0;
 }
@@ -452,7 +459,7 @@ static int luaproc_recycle_set( lua_State *L ) {
   luaL_argcheck( L, max >= 0, 1, "recycle limit must be positive" );
 
   /* get exclusive access to recycled lua processes list */
-  pthread_mutex_lock( &mutex_recycle_list );
+  mtx_lock( &mutex_recycle_list );
 
   recyclemax = max;  /* set maximum number */
 
@@ -462,7 +469,7 @@ static int luaproc_recycle_set( lua_State *L ) {
     lua_close( lp->lstate );
   }
   /* release exclusive access to recycled lua processes list */
-  pthread_mutex_unlock( &mutex_recycle_list );
+  mtx_unlock( &mutex_recycle_list );
 
   return 0;
 }
@@ -528,7 +535,7 @@ static int luaproc_create_newproc( lua_State *L ) {
   code = lua_tolstring( L, 1, &len );
 
   /* get exclusive access to recycled lua processes list */
-  pthread_mutex_lock( &mutex_recycle_list );
+  mtx_lock( &mutex_recycle_list );
 
   /* check if a lua process can be recycled */
   if ( recyclemax > 0 ) {
@@ -542,7 +549,7 @@ static int luaproc_create_newproc( lua_State *L ) {
   }
 
   /* release exclusive access to recycled lua processes list */
-  pthread_mutex_unlock( &mutex_recycle_list );
+  mtx_unlock( &mutex_recycle_list );
 
   /* init lua process */
   lp->status = LUAPROC_STATUS_IDLE;
@@ -595,9 +602,9 @@ static int luaproc_send( lua_State *L ) {
     dstlp->args = lua_gettop( dstlp->lstate ) - 1; 
     if ( dstlp->lstate == mainlp.lstate ) {
       /* if sending process is the parent (main) Lua state, unblock it */
-      pthread_mutex_lock( &mutex_mainls );
-      pthread_cond_signal( &cond_mainls_sendrecv );
-      pthread_mutex_unlock( &mutex_mainls );
+      mtx_lock( &mutex_mainls );
+      cnd_signal( &cond_mainls_sendrecv );
+      mtx_unlock( &mutex_mainls );
     } else {
       /* schedule receiving lua process for execution */
       sched_queue_proc( dstlp );
@@ -617,9 +624,9 @@ static int luaproc_send( lua_State *L ) {
       mainlp.chan = chan;
       luaproc_queue_sender( &mainlp );
       luaproc_unlock_channel( chan );
-      pthread_mutex_lock( &mutex_mainls );
-      pthread_cond_wait( &cond_mainls_sendrecv, &mutex_mainls );
-      pthread_mutex_unlock( &mutex_mainls );
+      mtx_lock( &mutex_mainls );
+      cnd_wait( &cond_mainls_sendrecv, &mutex_mainls );
+      mtx_unlock( &mutex_mainls );
       return mainlp.args;
     } else {
       /* sending process is a standard luaproc - set status, block and yield */
@@ -667,9 +674,9 @@ static int luaproc_receive( lua_State *L ) {
     }
     if ( srclp->lstate == mainlp.lstate ) {
       /* if sending process is the parent (main) Lua state, unblock it */
-      pthread_mutex_lock( &mutex_mainls );
-      pthread_cond_signal( &cond_mainls_sendrecv );
-      pthread_mutex_unlock( &mutex_mainls );
+      mtx_lock( &mutex_mainls );
+      cnd_signal( &cond_mainls_sendrecv );
+      mtx_unlock( &mutex_mainls );
     } else {
       /* otherwise, schedule process for execution */
       sched_queue_proc( srclp );
@@ -694,9 +701,9 @@ static int luaproc_receive( lua_State *L ) {
         mainlp.chan = chan;
         luaproc_queue_receiver( &mainlp );
         luaproc_unlock_channel( chan );
-        pthread_mutex_lock( &mutex_mainls );
-        pthread_cond_wait( &cond_mainls_sendrecv, &mutex_mainls );
-        pthread_mutex_unlock( &mutex_mainls );
+        mtx_lock( &mutex_mainls );
+        cnd_wait( &cond_mainls_sendrecv, &mutex_mainls );
+        mtx_unlock( &mutex_mainls );
         return mainlp.args;
       } else {
         /* receiving process is a standard luaproc - set status, block and 
@@ -742,7 +749,7 @@ static int luaproc_destroy_channel( lua_State *L ) {
   const char *chname = luaL_checkstring( L,  1 );
 
   /* get exclusive access to channels list */
-  pthread_mutex_lock( &mutex_channel_list );
+  mtx_lock( &mutex_channel_list );
 
   /*
      try to get channel and lock it; if lock fails, release external
@@ -751,13 +758,13 @@ static int luaproc_destroy_channel( lua_State *L ) {
      the channel may have been destroyed, so it must try to get it again.
   */
   while ((( chan = channel_unlocked_get( chname )) != NULL ) &&
-          ( pthread_mutex_trylock( &chan->mutex ) != 0 )) {
-    pthread_cond_wait( &chan->can_be_used, &mutex_channel_list );
+          ( mtx_trylock( &chan->mutex ) != 0 )) {
+    cnd_wait( &chan->can_be_used, &mutex_channel_list );
   }
 
   if ( chan == NULL ) {  /* found channel? */
     /* release exclusive access to channels list */
-    pthread_mutex_unlock( &mutex_channel_list );
+    mtx_unlock( &mutex_channel_list );
     /* return an error to lua */
     lua_pushnil( L );
     lua_pushfstring( L, "channel '%s' does not exist", chname );
@@ -770,14 +777,14 @@ static int luaproc_destroy_channel( lua_State *L ) {
   lua_setfield( chanls, -2, chname );
   lua_pop( chanls, 1 );
 
-  pthread_mutex_unlock( &mutex_channel_list );
+  mtx_unlock( &mutex_channel_list );
 
   /*
      wake up workers there are waiting to use the channel.
      they will not find the channel, since it was removed,
      and will not get this condition anymore.
    */
-  pthread_cond_broadcast( &chan->can_be_used );
+  cnd_broadcast( &chan->can_be_used );
 
   /*
      dequeue lua processes waiting on the channel, return an error message
@@ -802,9 +809,9 @@ static int luaproc_destroy_channel( lua_State *L ) {
   }
 
   /* unlock channel mutex and destroy both mutex and condition */
-  pthread_mutex_unlock( &chan->mutex );
-  pthread_mutex_destroy( &chan->mutex );
-  pthread_cond_destroy( &chan->can_be_used );
+  mtx_unlock( &chan->mutex );
+  mtx_destroy( &chan->mutex );
+  cnd_destroy( &chan->can_be_used );
 
   lua_pushboolean( L, TRUE );
   return 1;
@@ -874,6 +881,12 @@ LUALIB_API int luaopen_luaproc( lua_State *L ) {
 
   /* register luaproc functions */
   luaL_newlib( L, luaproc_funcs );
+
+  /* thread init */
+  mtx_init(&mutex_channel_list, mtx_plain);
+  mtx_init(&mutex_recycle_list, mtx_plain);
+  mtx_init(&mutex_mainls, mtx_plain);
+  cnd_init(&cond_mainls_sendrecv);
 
   /* wrap main state inside a lua process */
   mainlp.lstate = L;

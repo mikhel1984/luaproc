@@ -3,7 +3,7 @@
 ** See Copyright Notice in luaproc.h
 */
 
-#include <pthread.h>
+#include <threads.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <lua.h>
@@ -32,16 +32,16 @@
 list ready_lp_list;
 
 /* ready process queue access mutex */
-pthread_mutex_t mutex_sched = PTHREAD_MUTEX_INITIALIZER;
+mtx_t mutex_sched;  // destroy!!
 
 /* active luaproc count access mutex */
-pthread_mutex_t mutex_lp_count = PTHREAD_MUTEX_INITIALIZER;
+mtx_t mutex_lp_count;
 
 /* wake worker up conditional variable */
-pthread_cond_t cond_wakeup_worker = PTHREAD_COND_INITIALIZER;
+cnd_t cond_wakeup_worker;
 
 /* no active luaproc conditional variable */
-pthread_cond_t cond_no_active_lp = PTHREAD_COND_INITIALIZER;
+cnd_t cond_no_active_lp;
 
 /* lua_State used to store workers hash table */
 static lua_State *workerls = NULL;
@@ -61,7 +61,7 @@ static void sched_dec_lpcount( void );
  *******************************/
 
 /* worker thread main function */
-void *workermain( void *args ) {
+int workermain( void *args ) {
 
   luaproc *lp;
   int procstat, nresults = 0;
@@ -72,9 +72,9 @@ void *workermain( void *args ) {
       wait until instructed to wake up (because there's work to do
       or because workers must be destroyed)
     */
-    pthread_mutex_lock( &mutex_sched );
+    mtx_lock( &mutex_sched );
     while (( list_count( &ready_lp_list ) == 0 ) && ( destroyworkers <= 0 )) {
-      pthread_cond_wait( &cond_wakeup_worker, &mutex_sched );
+      cnd_wait( &cond_wakeup_worker, &mutex_sched );
     }
 
     if ( destroyworkers > 0 ) {  /* check whether workers should be destroyed */
@@ -84,19 +84,19 @@ void *workermain( void *args ) {
 
       /* remove worker from workers table */
       lua_getglobal( workerls, LUAPROC_SCHED_WORKERS_TABLE );
-      lua_pushlightuserdata( workerls, (void *)pthread_self( ));
+      lua_pushlightuserdata( workerls, (void *)thrd_current( ));
       lua_pushnil( workerls );
       lua_rawset( workerls, -3 );
       lua_pop( workerls, 1 );
 
-      pthread_cond_signal( &cond_wakeup_worker );  /* wake other workers up */
-      pthread_mutex_unlock( &mutex_sched );
-      pthread_exit( NULL );  /* destroy itself */
+      cnd_signal( &cond_wakeup_worker );  /* wake other workers up */
+      mtx_unlock( &mutex_sched );
+      thrd_exit( 0 );  /* destroy itself */
     }
 
     /* remove lua process from the ready queue */
     lp = list_remove( &ready_lp_list );
-    pthread_mutex_unlock( &mutex_sched );
+    mtx_unlock( &mutex_sched );
 
     /* execute the lua code specified in the lua process struct */
     procstat = luaproc_resume( luaproc_get_state( lp ), NULL,
@@ -131,9 +131,9 @@ void *workermain( void *args ) {
       /* yield on explicit coroutine.yield call */
       else { 
         /* re-insert the job at the end of the ready process queue */
-        pthread_mutex_lock( &mutex_sched );
+        mtx_lock( &mutex_sched );
         list_insert( &ready_lp_list, lp );
-        pthread_mutex_unlock( &mutex_sched );
+        mtx_unlock( &mutex_sched );
       }
     }
 
@@ -146,6 +146,8 @@ void *workermain( void *args ) {
       sched_dec_lpcount();  /* decrease active lua process count */
     }
   }    
+
+  return 0;
 }
 
 /***********************
@@ -154,13 +156,13 @@ void *workermain( void *args ) {
 
 /* decrease active lua process count */
 static void sched_dec_lpcount( void ) {
-  pthread_mutex_lock( &mutex_lp_count );
+  mtx_lock( &mutex_lp_count );
   lpcount--;
   /* if count reaches zero, signal there are no more active processes */
   if ( lpcount == 0 ) {
-    pthread_cond_signal( &cond_no_active_lp );
+    cnd_signal( &cond_no_active_lp );
   }
-  pthread_mutex_unlock( &mutex_lp_count );
+  mtx_unlock( &mutex_lp_count );
 }
 
 /**********************
@@ -169,16 +171,22 @@ static void sched_dec_lpcount( void ) {
 
 /* increase active lua process count */
 void sched_inc_lpcount( void ) {
-  pthread_mutex_lock( &mutex_lp_count );
+  mtx_lock( &mutex_lp_count );
   lpcount++;
-  pthread_mutex_unlock( &mutex_lp_count );
+  mtx_unlock( &mutex_lp_count );
 }
 
 /* local scheduler initialization */
 int sched_init( void ) {
 
   int i;
-  pthread_t worker;
+  thrd_t worker;
+
+  /* thread elements */
+  mtx_init(&mutex_sched, mtx_plain);
+  mtx_init(&mutex_lp_count, mtx_plain);
+  cnd_init(&cond_wakeup_worker);
+  cnd_init(&cond_no_active_lp);
 
   /* initialize ready process list */
   list_init( &ready_lp_list );
@@ -194,7 +202,7 @@ int sched_init( void ) {
   /* create default number of initial worker threads */
   for ( i = 0; i < LUAPROC_SCHED_DEFAULT_WORKER_THREADS; i++ ) {
 
-    if ( pthread_create( &worker, NULL, workermain, NULL ) != 0 ) {
+    if ( thrd_create( &worker, workermain, NULL ) != thrd_success ) {
       lua_pop( workerls, 1 ); /* pop workers table from stack */
       return LUAPROC_SCHED_PTHREAD_ERROR;
     }
@@ -216,9 +224,9 @@ int sched_init( void ) {
 int sched_set_numworkers( int numworkers ) {
 
   int i, delta;
-  pthread_t worker;
+  thrd_t worker;
 
-  pthread_mutex_lock( &mutex_sched );
+  mtx_lock( &mutex_sched );
 
   /* calculate delta between existing workers and set number of workers */
   delta = numworkers - workerscount;
@@ -232,8 +240,8 @@ int sched_set_numworkers( int numworkers ) {
     /* create additional workers */
     for ( i = 0; i < delta; i++ ) {
 
-      if ( pthread_create( &worker, NULL, workermain, NULL ) != 0 ) {
-        pthread_mutex_unlock( &mutex_sched );
+      if ( thrd_create( &worker, workermain, NULL ) != thrd_success ) {
+        mtx_unlock( &mutex_sched );
         lua_pop( workerls, 1 ); /* pop workers table from stack */
         return LUAPROC_SCHED_PTHREAD_ERROR;
       }
@@ -253,7 +261,7 @@ int sched_set_numworkers( int numworkers ) {
     destroyworkers = destroyworkers + numworkers;
   }
 
-  pthread_mutex_unlock( &mutex_sched );
+  mtx_unlock( &mutex_sched );
 
   return LUAPROC_SCHED_OK;
 }
@@ -263,26 +271,26 @@ int sched_get_numworkers( void ) {
 
   int numworkers;
 
-  pthread_mutex_lock( &mutex_sched );
+  mtx_lock( &mutex_sched );
   numworkers = workerscount;
-  pthread_mutex_unlock( &mutex_sched );
+  mtx_unlock( &mutex_sched );
 
   return numworkers;
 }
 
 /* insert lua process in ready queue */
 void sched_queue_proc( luaproc *lp ) {
-  pthread_mutex_lock( &mutex_sched );
+  mtx_lock( &mutex_sched );
   list_insert( &ready_lp_list, lp );  /* add process to ready queue */
   /* set process status ready */
   luaproc_set_status( lp, LUAPROC_STATUS_READY );
-  pthread_cond_signal( &cond_wakeup_worker );  /* wake worker up */
-  pthread_mutex_unlock( &mutex_sched );
+  cnd_signal( &cond_wakeup_worker );  /* wake worker up */
+  mtx_unlock( &mutex_sched );
 }
 
 /* join worker threads (called when Lua exits). not joining workers causes a
    race condition since lua_close unregisters dynamic libs with dlclose and
-   thus libpthreads can be unloaded while there are workers that are still 
+   thus threads lib can be unloaded while there are workers that are still 
    alive. */
 void sched_join_workers( void ) {
 
@@ -297,7 +305,7 @@ void sched_join_workers( void ) {
   lua_setglobal( L, wtb );
   lua_getglobal( L, wtb );
 
-  pthread_mutex_lock( &mutex_sched );
+  mtx_lock( &mutex_sched );
 
   /* determine remaining active worker threads and copy their ids */
   lua_getglobal( workerls, LUAPROC_SCHED_WORKERS_TABLE );
@@ -317,14 +325,14 @@ void sched_join_workers( void ) {
   destroyworkers = workerscount;
 
   /* wake workers up */
-  pthread_cond_signal( &cond_wakeup_worker );
-  pthread_mutex_unlock( &mutex_sched );
+  cnd_signal( &cond_wakeup_worker );
+  mtx_unlock( &mutex_sched );
 
   /* join with worker threads (read ids from local table copy ) */
   lua_getglobal( L, wtb );
   lua_pushnil( L );
   while ( lua_next( L, -2 ) != 0 ) {
-    pthread_join(( pthread_t )lua_touserdata( L, -2 ), NULL );
+    thrd_join(( thrd_t )lua_touserdata( L, -2 ), NULL );
     /* pop value, leave key for next iteration */
     lua_pop( L, 1 );
   }
@@ -332,16 +340,22 @@ void sched_join_workers( void ) {
 
   lua_close( workerls );
   lua_close( L );
+  
+  /* destroy thread elements */
+  mtx_destroy(&mutex_sched);
+  mtx_destroy(&mutex_lp_count);
+  cnd_destroy(&cond_wakeup_worker);
+  cnd_destroy(&cond_no_active_lp);
 }
 
 /* wait until there are no more active lua processes and active workers. */
 void sched_wait( void ) {
 
   /* wait until there are not more active lua processes */
-  pthread_mutex_lock( &mutex_lp_count );
+  mtx_lock( &mutex_lp_count );
   if( lpcount != 0 ) {
-    pthread_cond_wait( &cond_no_active_lp, &mutex_lp_count );
+    cnd_wait( &cond_no_active_lp, &mutex_lp_count );
   }
-  pthread_mutex_unlock( &mutex_lp_count );
+  mtx_unlock( &mutex_lp_count );
 
 }
