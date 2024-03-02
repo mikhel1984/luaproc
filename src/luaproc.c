@@ -163,14 +163,12 @@ void list_init( list *l )
 /* create a new channel and insert it into channels table */
 static channel *channel_create( const char *cname )
 {
-  channel *chan;
-
   /* get exclusive access to channels list */
   mtx_lock( &mutex_channel_list );
 
   /* create new channel and register its name */
   lua_getglobal( chanls, LUAPROC_CHANNELS_TABLE );
-  chan = (channel *)lua_newuserdata( chanls, sizeof( channel ));
+  channel* chan = (channel *)lua_newuserdata( chanls, sizeof( channel ));
   lua_setfield( chanls, -2, cname );
   lua_pop( chanls, 1 );  /* remove channel table from stack */
 
@@ -192,11 +190,9 @@ static channel *channel_create( const char *cname )
  */
 static channel *channel_unlocked_get( const char *chname )
 {
-  channel *chan;
-
   lua_getglobal( chanls, LUAPROC_CHANNELS_TABLE );
   lua_getfield( chanls, -1, chname );
-  chan = (channel *)lua_touserdata( chanls, -1 );
+  channel* chan = (channel *)lua_touserdata( chanls, -1 );
   lua_pop( chanls, 2 );  /* pop userdata and channel */
 
   return chan;
@@ -209,8 +205,6 @@ static channel *channel_unlocked_get( const char *chname )
  */
 static channel *channel_locked_get( const char *chname )
 {
-  channel *chan;
-
   /* get exclusive access to channels list */
   mtx_lock( &mutex_channel_list );
 
@@ -220,6 +214,7 @@ static channel *channel_locked_get( const char *chname )
      keeping the external lock busy for too long. during the release,
      the channel may be destroyed, so it must try to get it again.
   */
+  channel *chan;
   while ((( chan = channel_unlocked_get( chname )) != NULL ) &&
         ( mtx_trylock( &chan->mutex ) != 0 ))
   {
@@ -300,7 +295,6 @@ static void luaproc_loadbuffer(
 /* copies values between lua states' stacks */
 static int luaproc_copyvalues( lua_State *Lfrom, lua_State *Lto )
 {
-  int i;
   int n = lua_gettop( Lfrom );
   const char *str;
   size_t len;
@@ -315,7 +309,7 @@ static int luaproc_copyvalues( lua_State *Lfrom, lua_State *Lto )
   }
 
   /* test each value's type and, if it's supported, copy value */
-  for ( i = 2; i <= n; i++ ) {
+  for (int i = 2; i <= n; i++ ) {
     switch ( lua_type( Lfrom, i )) {
       case LUA_TBOOLEAN:
         lua_pushboolean( Lto, lua_toboolean( Lfrom, i ));
@@ -348,10 +342,8 @@ static int luaproc_copyvalues( lua_State *Lfrom, lua_State *Lto )
 /* return the lua process associated with a given lua state */
 static luaproc *luaproc_getself( lua_State *L )
 {
-  luaproc *lp;
-
   lua_getfield( L, LUA_REGISTRYINDEX, "LUAPROC_LP_UDATA" );
-  lp = (luaproc *)lua_touserdata( L, -1 );
+  luaproc* lp = (luaproc *)lua_touserdata( L, -1 );
   lua_pop( L, 1 );
 
   return lp;
@@ -360,11 +352,10 @@ static luaproc *luaproc_getself( lua_State *L )
 /* create new lua process */
 static luaproc *luaproc_new( lua_State *L )
 {
-  luaproc *lp;
   lua_State *lpst = luaL_newstate();  /* create new lua state */
 
   /* store the lua process in its own lua state */
-  lp = (luaproc *)lua_newuserdata( lpst, sizeof( struct stluaproc ));
+  luaproc* lp = (luaproc *)lua_newuserdata( lpst, sizeof( struct stluaproc ));
   lua_setfield( lpst, LUA_REGISTRYINDEX, "LUAPROC_LP_UDATA" );
   luaproc_openlualibs( lpst );  /* load standard libraries and luaproc */
   /* register luaproc's own functions */
@@ -462,8 +453,6 @@ static int luaproc_copyupvalues(
 /* set maximum number of lua processes in the recycle list */
 static int luaproc_recycle_set( lua_State *L )
 {
-  luaproc *lp;
-
   /* validate parameter is a non negative number */
   lua_Integer max = luaL_checkinteger( L, 1 );
   luaL_argcheck( L, max >= 0, 1, "recycle limit must be positive" );
@@ -475,7 +464,7 @@ static int luaproc_recycle_set( lua_State *L )
 
   /* remove extra nodes and destroy each lua processes */
   while ( list_count( &recycle_list ) > recyclemax ) {
-    lp = list_remove( &recycle_list );
+    luaproc* lp = list_remove( &recycle_list );
     lua_close( lp->lstate );
   }
   /* release exclusive access to recycled lua processes list */
@@ -516,19 +505,16 @@ static int luaproc_get_numworkers( lua_State *L )
 /* create and schedule a new lua process */
 static int luaproc_create_newproc( lua_State *L )
 {
-  size_t len;
-  luaproc *lp;
-  luaL_Buffer buff;
-  const char *code;
-  int d;
-  int lt = lua_type( L, 1 );
+  luaproc *lp = NULL;
 
   /* check function argument type - must be function or string; in case it is
      a function, dump it into a binary string */
+  int lt = lua_type( L, 1 );
   if ( lt == LUA_TFUNCTION ) {
     lua_settop( L, 1 );
+    luaL_Buffer buff;
     luaL_buffinit( L, &buff );
-    d = lua_dump( L, luaproc_buff_writer, &buff, FALSE );
+    int d = lua_dump( L, luaproc_buff_writer, &buff, FALSE );
     if ( d != 0 ) {
       lua_pushnil( L );
       lua_pushfstring( L, "error %d dumping function to binary string", d );
@@ -544,7 +530,8 @@ static int luaproc_create_newproc( lua_State *L )
   }
 
   /* get pointer to code string */
-  code = lua_tolstring( L, 1, &len );
+  size_t len;
+  const char* code = lua_tolstring( L, 1, &len );
 
   /* get exclusive access to recycled lua processes list */
   mtx_lock( &mutex_recycle_list );
@@ -591,12 +578,9 @@ static int luaproc_create_newproc( lua_State *L )
 /* send a message to a lua process */
 static int luaproc_send( lua_State *L )
 {
-  int ret;
-  channel *chan;
-  luaproc *dstlp, *self;
   const char *chname = luaL_checkstring( L, 1 );
+  channel* chan = channel_locked_get( chname );
 
-  chan = channel_locked_get( chname );
   /* if channel is not found, return an error to lua */
   if ( chan == NULL ) {
     lua_pushnil( L );
@@ -605,11 +589,11 @@ static int luaproc_send( lua_State *L )
   }
 
   /* remove first lua process, if any, from channel's receive list */
-  dstlp = list_remove( &chan->recv );
+  luaproc* dstlp = list_remove( &chan->recv );
 
   if ( dstlp != NULL ) { /* found a receiver? */
     /* try to move values between lua states' stacks */
-    ret = luaproc_copyvalues( L, dstlp->lstate );
+    int ret = luaproc_copyvalues( L, dstlp->lstate );
     /* -1 because channel name is on the stack */
     dstlp->args = lua_gettop( dstlp->lstate ) - 1;
     if ( dstlp->lstate == mainlp.lstate ) {
@@ -642,7 +626,7 @@ static int luaproc_send( lua_State *L )
       return mainlp.args;
     } else {
       /* sending process is a standard luaproc - set status, block and yield */
-      self = luaproc_getself( L );
+      luaproc* self = luaproc_getself( L );
       if ( self != NULL ) {
         self->status = LUAPROC_STATUS_BLOCKED_SEND;
         self->chan   = chan;
@@ -656,15 +640,12 @@ static int luaproc_send( lua_State *L )
 /* receive a message from a lua process */
 static int luaproc_receive( lua_State *L )
 {
-  int ret, nargs;
-  channel *chan;
-  luaproc *srclp, *self;
   const char *chname = luaL_checkstring( L, 1 );
 
   /* get number of arguments passed to function */
-  nargs = lua_gettop( L );
+  int nargs = lua_gettop( L );
 
-  chan = channel_locked_get( chname );
+  channel* chan = channel_locked_get( chname );
   /* if channel is not found, return an error to Lua */
   if ( chan == NULL ) {
     lua_pushnil( L );
@@ -673,11 +654,11 @@ static int luaproc_receive( lua_State *L )
   }
 
   /* remove first lua process, if any, from channels' send list */
-  srclp = list_remove( &chan->send );
+  luaproc* srclp = list_remove( &chan->send );
 
   if ( srclp != NULL ) {  /* found a sender? */
     /* try to move values between lua states' stacks */
-    ret = luaproc_copyvalues( srclp->lstate, L );
+    int ret = luaproc_copyvalues( srclp->lstate, L );
     if ( ret == TRUE ) { /* was receive successful? */
       lua_pushboolean( srclp->lstate, TRUE );
       srclp->args = 1;
@@ -720,7 +701,7 @@ static int luaproc_receive( lua_State *L )
       } else {
         /* receiving process is a standard luaproc - set status, block and
            yield */
-        self = luaproc_getself( L );
+        luaproc* self = luaproc_getself( L );
         if ( self != NULL ) {
           self->status = LUAPROC_STATUS_BLOCKED_RECV;
           self->chan   = chan;
@@ -755,9 +736,6 @@ static int luaproc_create_channel( lua_State *L )
 /* destroy a channel */
 static int luaproc_destroy_channel( lua_State *L )
 {
-  channel *chan;
-  list *blockedlp;
-  luaproc *lp;
   const char *chname = luaL_checkstring( L,  1 );
 
   /* get exclusive access to channels list */
@@ -769,6 +747,7 @@ static int luaproc_destroy_channel( lua_State *L )
      keeping the external lock busy for too long. during this release,
      the channel may have been destroyed, so it must try to get it again.
   */
+  channel *chan = NULL;
   while ((( chan = channel_unlocked_get( chname )) != NULL ) &&
           ( mtx_trylock( &chan->mutex ) != 0 ))
   {
@@ -804,6 +783,7 @@ static int luaproc_destroy_channel( lua_State *L )
      to each of them indicating channel was destroyed and schedule them
      for execution (unblock them).
    */
+  list *blockedlp = NULL;
   if ( chan->send.head != NULL ) {
     lua_pushfstring( L, "channel '%s' destroyed while waiting for receiver",
                      chname );
@@ -813,6 +793,7 @@ static int luaproc_destroy_channel( lua_State *L )
                      chname );
     blockedlp = &chan->recv;
   }
+  luaproc *lp = NULL;
   while (( lp = list_remove( blockedlp )) != NULL ) {
     /* return an error to each process */
     lua_pushnil( lp->lstate );

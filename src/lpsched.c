@@ -63,9 +63,6 @@ static void sched_dec_lpcount( void );
 /* worker thread main function */
 int workermain( void *args )
 {
-  luaproc *lp;
-  int procstat, nresults = 0;
-
   /* main worker loop */
   while ( TRUE ) {
     /*
@@ -95,12 +92,13 @@ int workermain( void *args )
     }
 
     /* remove lua process from the ready queue */
-    lp = list_remove( &ready_lp_list );
+    luaproc* lp = list_remove( &ready_lp_list );
     mtx_unlock( &mutex_sched );
 
     /* execute the lua code specified in the lua process struct */
-    procstat = luaproc_resume( luaproc_get_state( lp ), NULL,
-                               luaproc_get_numargs( lp ), &nresults );
+    int nresults = 0;
+    int procstat = luaproc_resume( 
+      luaproc_get_state( lp ), NULL, luaproc_get_numargs( lp ), &nresults );
     /* reset the process argument count */
     luaproc_set_numargs( lp, 0 );
 
@@ -181,9 +179,6 @@ void sched_inc_lpcount( void )
 /* local scheduler initialization */
 int sched_init( void )
 {
-  int i;
-  thrd_t worker;
-
   /* thread elements */
   mtx_init(&mutex_sched, mtx_plain);
   mtx_init(&mutex_lp_count, mtx_plain);
@@ -202,7 +197,8 @@ int sched_init( void )
   lua_getglobal( workerls, LUAPROC_SCHED_WORKERS_TABLE );
 
   /* create default number of initial worker threads */
-  for ( i = 0; i < LUAPROC_SCHED_DEFAULT_WORKER_THREADS; i++ ) {
+  thrd_t worker;
+  for (int i = 0; i < LUAPROC_SCHED_DEFAULT_WORKER_THREADS; i++ ) {
 
     if ( thrd_create( &worker, workermain, NULL ) != thrd_success ) {
       lua_pop( workerls, 1 ); /* pop workers table from stack */
@@ -225,13 +221,10 @@ int sched_init( void )
 /* set number of active workers */
 int sched_set_numworkers( int numworkers )
 {
-  int i, delta;
-  thrd_t worker;
-
   mtx_lock( &mutex_sched );
 
   /* calculate delta between existing workers and set number of workers */
-  delta = numworkers - workerscount;
+  int delta = numworkers - workerscount;
 
   /* create additional workers */
   if ( numworkers > workerscount ) {
@@ -240,7 +233,8 @@ int sched_set_numworkers( int numworkers )
     lua_getglobal( workerls, LUAPROC_SCHED_WORKERS_TABLE );
 
     /* create additional workers */
-    for ( i = 0; i < delta; i++ ) {
+    thrd_t worker;
+    for (int i = 0; i < delta; i++ ) {
 
       if ( thrd_create( &worker, workermain, NULL ) != thrd_success ) {
         mtx_unlock( &mutex_sched );
@@ -271,10 +265,8 @@ int sched_set_numworkers( int numworkers )
 /* return the number of active workers */
 int sched_get_numworkers( void )
 {
-  int numworkers;
-
   mtx_lock( &mutex_sched );
-  numworkers = workerscount;
+  int numworkers = workerscount;
   mtx_unlock( &mutex_sched );
 
   return numworkers;

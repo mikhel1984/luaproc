@@ -76,3 +76,8 @@ standard library must also be loaded.
 
 * First public beta release.
 
+******************************************************
+
+* Remove ver 5.1, 5.2, add 5.4
+
+* Replace pthread with C11 threads
