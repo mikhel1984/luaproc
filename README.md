@@ -76,11 +76,6 @@ and an error message if failed. Lua processes waiting to send or receive
 messages on destroyed channels have their execution resumed and receive an error
 message indicating the channel was destroyed. 
 
-## Download
-
-GitHub source repository:
-[https://github.com/askyrme/luaproc](https://github.com/askyrme/luaproc)
-
 ## License
 
 Copyright © 2008-2015 Alexandre Skyrme, Noemi Rodriguez, Roberto Ierusalimschy.
