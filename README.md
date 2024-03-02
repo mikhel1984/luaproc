@@ -1,54 +1,17 @@
 # luaproc - A concurrent programming library for Lua
 
-## Introduction
+## Original version
 
-*luaproc* is a [Lua](http://www.lua.org) extension library for concurrent
-programming. This text provides some background information and also serves as s
-reference manual for the library. The library is available under the same [terms
-and conditions](http://www.lua.org/copyright.html) as the Lua language, the MIT
-license. The idea is that if you can use Lua in a project, you should also be
-able to use *luaproc*.
+[https://github.com/askyrme/luaproc](https://github.com/askyrme/luaproc)
 
-Lua natively supports cooperative multithreading by means of coroutines.
-However, coroutines in Lua cannot be executed in parallel. *luaproc* overcomes
-that restriction by building on the proposal and sample implementation presented
-in [Programming in Lua](http://www.inf.puc-rio.br/~roberto/pil2) (chapter 30).
-It uses coroutines and multiple independent states in Lua to implement *Lua
-processes*, which are user threads comprised of Lua code that have no shared
-data. Lua processes are executed by *workers*, which are system threads
-implemented with POSIX threads (pthreads), and thus can run in parallel.
+## Updates
 
-Communication between Lua processes relies exclusively on message passing. Each
-message can carry a tuple of atomic Lua values (strings, numbers, booleans and
-nil). More complex types must be encoded somehow -- for instance by using
-strings of Lua code that when executed return such a type. Message addressing is
-based on communication channels, which are decoupled from Lua processes and must
-be explicitly created.
-
-Sending a message is always a synchronous operation, i.e., the send operation
-only returns after a message has been received by another Lua process or if an
-error occurs (such as trying to send a message to a non-existent channel).
-Receiving a message, on the other hand, can be a synchronous or asynchronous
-operation. In synchronous mode, a call to the receive operation only returns
-after a message has been received or if an error occurs. In asynchronous mode, a
-call to the receive operation returns immediately and indicates if a message was
-received or not.
-
-If a Lua process tries to send a message to a channel where there are no Lua
-processes waiting to receive a message, its execution is suspended until a
-matching receive occurs or the channel is destroyed. The same happens if a Lua
-process tries to synchronously receive a message from a channel where there are
-no Lua processes waiting to send a message.
-
-*luaproc* also offers an optional facility to recycle Lua processes. Recycling
-consists of reusing states from finished Lua processes, instead of destroying
-them. When recycling is enabled, a new Lua process can be created by loading its
-code in a previously used state from a finished Lua process, instead of creating
-a new state. 
+* Lua 5.3+
+* c11 _threads_ instead of _pthread_ library
 
 ## Compatibility
 
-*luaproc* is compatible with Lua 5.1, 5.2 and 5.3.
+This version is compatible with Lua 5.3 and 5.4.
 
 ## API
 
@@ -112,24 +75,6 @@ Destroys a channel identified by string name. Returns true if successful or nil
 and an error message if failed. Lua processes waiting to send or receive
 messages on destroyed channels have their execution resumed and receive an error
 message indicating the channel was destroyed. 
-
-## References
-
-A paper about luaproc -- *Exploring Lua for Concurrent Programming* -- was
-published in the Journal of Universal Computer Science and is available
-[here](http://www.jucs.org/jucs_14_21/exploring_lua_for_concurrent) and
-[here](http://www.inf.puc-rio.br/~roberto/docs/ry08-05.pdf). Some information in
-the paper is already outdated, but it still provides a good overview of the
-library and some of its design choices.
-
-A tech report about concurrency in Lua, which uses luaproc as part of a case
-study, is also available
-[here](ftp://ftp.inf.puc-rio.br/pub/docs/techreports/11_13_skyrme.pdf).
-
-Finally, a paper about an experiment to port luaproc to use Transactional Memory
-instead of the standard POSIX Threads synchronization constructs, published as a
-part of the 8th ACM SIGPLAN Workshop on Transactional Computing, can be found
-[here](http://transact2013.cse.lehigh.edu/skyrme.pdf).
 
 ## Download
 
