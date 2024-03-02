@@ -117,7 +117,7 @@ static const struct luaL_Reg luaproc_funcs[] = {
  ******************/
 
 /* insert a lua process in a (fifo) list */
-void list_insert( list *l, luaproc *lp )
+void list_insert (list *l, luaproc *lp)
 {
   if ( l->head == NULL ) {
     l->head = lp;
@@ -130,7 +130,7 @@ void list_insert( list *l, luaproc *lp )
 }
 
 /* remove and return the first lua process in a (fifo) list */
-luaproc *list_remove( list *l )
+luaproc *list_remove (list *l)
 {
   if ( l->head != NULL ) {
     luaproc *lp = l->head;
@@ -143,13 +143,13 @@ luaproc *list_remove( list *l )
 }
 
 /* return a list's node count */
-int list_count( list *l )
+int list_count (list *l)
 {
   return l->nodes;
 }
 
 /* initialize an empty list */
-void list_init( list *l )
+void list_init (list *l)
 {
   l->head = NULL;
   l->tail = NULL;
@@ -161,7 +161,7 @@ void list_init( list *l )
  *********************/
 
 /* create a new channel and insert it into channels table */
-static channel *channel_create( const char *cname )
+static channel *channel_create (const char *cname)
 {
   /* get exclusive access to channels list */
   mtx_lock( &mutex_channel_list );
@@ -188,7 +188,7 @@ static channel *channel_create( const char *cname )
    return a channel (if not found, return null).
    caller function MUST lock 'mutex_channel_list' before calling this function.
  */
-static channel *channel_unlocked_get( const char *chname )
+static channel *channel_unlocked_get (const char *chname)
 {
   lua_getglobal( chanls, LUAPROC_CHANNELS_TABLE );
   lua_getfield( chanls, -1, chname );
@@ -203,7 +203,7 @@ static channel *channel_unlocked_get( const char *chname )
    caller function should unlock channel's (mutex) lock after calling this
    function.
  */
-static channel *channel_locked_get( const char *chname )
+static channel *channel_locked_get (const char *chname)
 {
   /* get exclusive access to channels list */
   mtx_lock( &mutex_channel_list );
@@ -214,9 +214,9 @@ static channel *channel_locked_get( const char *chname )
      keeping the external lock busy for too long. during the release,
      the channel may be destroyed, so it must try to get it again.
   */
-  channel *chan;
-  while ((( chan = channel_unlocked_get( chname )) != NULL ) &&
-        ( mtx_trylock( &chan->mutex ) != 0 ))
+  channel *chan = NULL;
+  while (( chan = channel_unlocked_get( chname )) != NULL
+    && mtx_trylock( &chan->mutex ) != 0)
   {
     cnd_wait( &chan->can_be_used, &mutex_channel_list );
   }
@@ -232,7 +232,7 @@ static channel *channel_locked_get( const char *chname )
  ********************************/
 
 /* unlock access to a channel and signal it can be used */
-void luaproc_unlock_channel( channel *chan )
+void luaproc_unlock_channel (channel *chan)
 {
   /* get exclusive access to channels list */
   mtx_lock( &mutex_channel_list );
@@ -245,7 +245,7 @@ void luaproc_unlock_channel( channel *chan )
 }
 
 /* insert lua process in recycle list */
-void luaproc_recycle_insert( luaproc *lp )
+void luaproc_recycle_insert (luaproc *lp)
 {
   /* get exclusive access to recycled lua processes list */
   mtx_lock( &mutex_recycle_list );
@@ -264,13 +264,13 @@ void luaproc_recycle_insert( luaproc *lp )
 }
 
 /* queue a lua process that tried to send a message */
-void luaproc_queue_sender( luaproc *lp )
+void luaproc_queue_sender (luaproc *lp)
 {
   list_insert( &lp->chan->send, lp );
 }
 
 /* queue a lua process that tried to receive a message */
-void luaproc_queue_receiver( luaproc *lp )
+void luaproc_queue_receiver (luaproc *lp)
 {
   list_insert( &lp->chan->recv, lp );
 }
@@ -278,8 +278,8 @@ void luaproc_queue_receiver( luaproc *lp )
 /********************************
  * internal auxiliary functions *
  ********************************/
-static void luaproc_loadbuffer(
-  lua_State *parent, luaproc *lp, const char *code, size_t len )
+static void luaproc_loadbuffer (
+  lua_State *parent, luaproc *lp, const char *code, size_t len)
 {
   /* load lua process' lua code */
   int ret = luaL_loadbuffer( lp->lstate, code, len, code );
@@ -292,12 +292,36 @@ static void luaproc_loadbuffer(
   }
 }
 
+static int copy_data (lua_State* Lfrom, lua_State* Lto, int ind)
+{
+  const char* str = NULL;
+  size_t len = 0;
+
+  switch ( lua_type( Lfrom, ind )) {
+    case LUA_TBOOLEAN:
+      lua_pushboolean( Lto, lua_toboolean( Lfrom, ind ));
+      break;
+    case LUA_TNUMBER:
+      copynumber( Lto, Lfrom, ind );
+      break;
+    case LUA_TSTRING: {
+      str = lua_tolstring( Lfrom, ind, &len );
+      lua_pushlstring( Lto, str, len );
+      break;
+    }
+    case LUA_TNIL:
+      lua_pushnil( Lto );
+      break;
+    default: /* value type not supported: table, function, userdata, etc. */
+      return FALSE;
+  }
+  return TRUE;
+}
+
 /* copies values between lua states' stacks */
-static int luaproc_copyvalues( lua_State *Lfrom, lua_State *Lto )
+static int luaproc_copyvalues (lua_State *Lfrom, lua_State *Lto)
 {
   int n = lua_gettop( Lfrom );
-  const char *str;
-  size_t len;
 
   /* ensure there is space in the receiver's stack */
   if ( lua_checkstack( Lto, n ) == 0 ) {
@@ -309,38 +333,23 @@ static int luaproc_copyvalues( lua_State *Lfrom, lua_State *Lto )
   }
 
   /* test each value's type and, if it's supported, copy value */
-  for (int i = 2; i <= n; i++ ) {
-    switch ( lua_type( Lfrom, i )) {
-      case LUA_TBOOLEAN:
-        lua_pushboolean( Lto, lua_toboolean( Lfrom, i ));
-        break;
-      case LUA_TNUMBER:
-        copynumber( Lto, Lfrom, i );
-        break;
-      case LUA_TSTRING: {
-        str = lua_tolstring( Lfrom, i, &len );
-        lua_pushlstring( Lto, str, len );
-        break;
-      }
-      case LUA_TNIL:
-        lua_pushnil( Lto );
-        break;
-      default: /* value type not supported: table, function, userdata, etc. */
-        lua_settop( Lto, 1 );
-        lua_pushnil( Lto );
-        lua_pushfstring( Lto, "failed to receive value of unsupported type "
-                                "'%s'", luaL_typename( Lfrom, i ));
-        lua_pushnil( Lfrom );
-        lua_pushfstring( Lfrom, "failed to send value of unsupported type "
-                                "'%s'", luaL_typename( Lfrom, i ));
-        return FALSE;
+  for ( int i = 2; i <= n; i++ ) {
+    if ( !copy_data( Lfrom, Lto, i )) {
+      lua_settop( Lto, 1 );
+      lua_pushnil( Lto );
+      lua_pushfstring( Lto, "failed to receive value of unsupported type '%s'",
+        luaL_typename( Lfrom, i ));
+      lua_pushnil( Lfrom );
+      lua_pushfstring( Lfrom, "failed to send value of unsupported type '%s'",
+        luaL_typename( Lfrom, i ));
+      return FALSE;
     }
   }
   return TRUE;
 }
 
 /* return the lua process associated with a given lua state */
-static luaproc *luaproc_getself( lua_State *L )
+static luaproc *luaproc_getself (lua_State *L)
 {
   lua_getfield( L, LUA_REGISTRYINDEX, "LUAPROC_LP_UDATA" );
   luaproc* lp = (luaproc *)lua_touserdata( L, -1 );
@@ -350,7 +359,7 @@ static luaproc *luaproc_getself( lua_State *L )
 }
 
 /* create new lua process */
-static luaproc *luaproc_new( lua_State *L )
+static luaproc *luaproc_new (lua_State *L)
 {
   lua_State *lpst = luaL_newstate();  /* create new lua state */
 
@@ -366,7 +375,7 @@ static luaproc *luaproc_new( lua_State *L )
 }
 
 /* join schedule workers (called before exiting Lua) */
-static int luaproc_join_workers( lua_State *L )
+static int luaproc_join_workers (lua_State *L)
 {
   sched_join_workers();
 
@@ -381,58 +390,38 @@ static int luaproc_join_workers( lua_State *L )
 }
 
 /* writer function for lua_dump */
-static int luaproc_buff_writer(
-  lua_State *L, const void *buff, size_t size, void *ud )
+static int luaproc_buff_writer (
+  lua_State *L, const void *buff, size_t size, void *ud)
 {
   (void)L;
-  luaL_addlstring((luaL_Buffer *)ud, (const char *)buff, size );
+  luaL_addlstring( (luaL_Buffer *)ud, (const char *)buff, size );
   return 0;
 }
 
 /* copies upvalues between lua states' stacks */
-static int luaproc_copyupvalues(
-  lua_State *Lfrom, lua_State *Lto, int funcindex )
+static int luaproc_copyupvalues (
+  lua_State *Lfrom, lua_State *Lto, int funcindex)
 {
-  int i = 1;
-  const char *str;
-  size_t len;
-
   /* test the type of each upvalue and, if it's supported, copy it */
-  while ( lua_getupvalue( Lfrom, funcindex, i ) != NULL ) {
-    switch ( lua_type( Lfrom, -1 )) {
-      case LUA_TBOOLEAN:
-        lua_pushboolean( Lto, lua_toboolean( Lfrom, -1 ));
-        break;
-      case LUA_TNUMBER:
-        copynumber( Lto, Lfrom, -1 );
-        break;
-      case LUA_TSTRING: {
-        str = lua_tolstring( Lfrom, -1, &len );
-        lua_pushlstring( Lto, str, len );
-        break;
-      }
-      case LUA_TNIL:
-        lua_pushnil( Lto );
-        break;
+  for ( int i = 1; lua_getupvalue( Lfrom, funcindex, i ) != NULL; i++ ) {
+    if ( !copy_data( Lfrom, Lto, -1 )) {
       /* if upvalue is a table, check whether it is the global environment
          (_ENV) from the source state Lfrom. in case so, push in the stack of
          the destination state Lto its own global environment to be set as the
          corresponding upvalue; otherwise, treat it as a regular non-supported
          upvalue type. */
-      case LUA_TTABLE:
+      if (lua_type( Lfrom, -1 ) == LUA_TTABLE ) {
         lua_pushglobaltable( Lfrom );
-        if (lua_compare( Lfrom, -1, -2, LUA_OPEQ )) {
-          lua_pop( Lfrom, 1 );
-          lua_pushglobaltable( Lto );
-          break;
-        }
+        int equal = lua_compare( Lfrom, -1, -2, LUA_OPEQ );
         lua_pop( Lfrom, 1 );
-        /* FALLTHROUGH */
-      default: /* value type not supported: table, function, userdata, etc. */
-        lua_pushnil( Lfrom );
-        lua_pushfstring( Lfrom, "failed to copy upvalue of unsupported type "
-                                "'%s'", luaL_typename( Lfrom, -2 ));
-        return FALSE;
+        if ( !equal ) {
+          lua_pushnil( Lfrom );
+          lua_pushfstring( Lfrom, "failed to copy upvalue of unsupported type '%s'",
+            luaL_typename( Lfrom, -2 ));
+          return FALSE;
+        }
+        lua_pushglobaltable( Lto );
+      }
     }
     lua_pop( Lfrom, 1 );
     if ( lua_setupvalue( Lto, 1, i ) == NULL ) {
@@ -440,7 +429,6 @@ static int luaproc_copyupvalues(
       lua_pushstring( Lfrom, "failed to set upvalue" );
       return FALSE;
     }
-    i++;
   }
   return TRUE;
 }
@@ -451,7 +439,7 @@ static int luaproc_copyupvalues(
  *********************/
 
 /* set maximum number of lua processes in the recycle list */
-static int luaproc_recycle_set( lua_State *L )
+static int luaproc_recycle_set (lua_State *L)
 {
   /* validate parameter is a non negative number */
   lua_Integer max = luaL_checkinteger( L, 1 );
@@ -474,14 +462,14 @@ static int luaproc_recycle_set( lua_State *L )
 }
 
 /* wait until there are no more active lua processes */
-static int luaproc_wait( lua_State *L )
+static int luaproc_wait (lua_State *L)
 {
   sched_wait();
   return 0;
 }
 
 /* set number of workers (creates or destroys accordingly) */
-static int luaproc_set_numworkers( lua_State *L )
+static int luaproc_set_numworkers (lua_State *L)
 {
   /* validate parameter is a positive number */
   lua_Integer numworkers = luaL_checkinteger( L, -1 );
@@ -489,21 +477,21 @@ static int luaproc_set_numworkers( lua_State *L )
 
   /* set number of threads; signal error on failure */
   if ( sched_set_numworkers( numworkers ) == LUAPROC_SCHED_PTHREAD_ERROR ) {
-      luaL_error( L, "failed to create worker" );
+    luaL_error( L, "failed to create worker" );
   }
 
   return 0;
 }
 
 /* return the number of active workers */
-static int luaproc_get_numworkers( lua_State *L )
+static int luaproc_get_numworkers (lua_State *L)
 {
-  lua_pushnumber( L, sched_get_numworkers( ));
+  lua_pushnumber( L, sched_get_numworkers() );
   return 1;
 }
 
 /* create and schedule a new lua process */
-static int luaproc_create_newproc( lua_State *L )
+static int luaproc_create_newproc (lua_State *L)
 {
   luaproc *lp = NULL;
 
@@ -525,7 +513,7 @@ static int luaproc_create_newproc( lua_State *L )
   } else if ( lt != LUA_TSTRING ) {
     lua_pushnil( L );
     lua_pushfstring( L, "cannot use '%s' to create a new process",
-                     luaL_typename( L, 1 ));
+      luaL_typename( L, 1 ));
     return 2;
   }
 
@@ -576,7 +564,7 @@ static int luaproc_create_newproc( lua_State *L )
 }
 
 /* send a message to a lua process */
-static int luaproc_send( lua_State *L )
+static int luaproc_send (lua_State *L)
 {
   const char *chname = luaL_checkstring( L, 1 );
   channel* chan = channel_locked_get( chname );
@@ -634,11 +622,12 @@ static int luaproc_send( lua_State *L )
       /* yield. channel will be unlocked by the scheduler */
       return lua_yield( L, lua_gettop( L ));
     }
+
   }
 }
 
 /* receive a message from a lua process */
-static int luaproc_receive( lua_State *L )
+static int luaproc_receive (lua_State *L)
 {
   const char *chname = luaL_checkstring( L, 1 );
 
@@ -710,11 +699,12 @@ static int luaproc_receive( lua_State *L )
         return lua_yield( L, lua_gettop( L ));
       }
     }
+
   }
 }
 
 /* create a new channel */
-static int luaproc_create_channel( lua_State *L )
+static int luaproc_create_channel (lua_State *L)
 {
   const char *chname = luaL_checkstring( L, 1 );
 
@@ -734,7 +724,7 @@ static int luaproc_create_channel( lua_State *L )
 }
 
 /* destroy a channel */
-static int luaproc_destroy_channel( lua_State *L )
+static int luaproc_destroy_channel (lua_State *L)
 {
   const char *chname = luaL_checkstring( L,  1 );
 
@@ -748,8 +738,8 @@ static int luaproc_destroy_channel( lua_State *L )
      the channel may have been destroyed, so it must try to get it again.
   */
   channel *chan = NULL;
-  while ((( chan = channel_unlocked_get( chname )) != NULL ) &&
-          ( mtx_trylock( &chan->mutex ) != 0 ))
+  while (( chan = channel_unlocked_get( chname )) != NULL
+    && mtx_trylock( &chan->mutex ) != 0 )
   {
     cnd_wait( &chan->can_be_used, &mutex_channel_list );
   }
@@ -786,11 +776,11 @@ static int luaproc_destroy_channel( lua_State *L )
   list *blockedlp = NULL;
   if ( chan->send.head != NULL ) {
     lua_pushfstring( L, "channel '%s' destroyed while waiting for receiver",
-                     chname );
+      chname );
     blockedlp = &chan->send;
   } else {
     lua_pushfstring( L, "channel '%s' destroyed while waiting for sender",
-                     chname );
+      chname );
     blockedlp = &chan->recv;
   }
   luaproc *lp = NULL;
@@ -816,37 +806,37 @@ static int luaproc_destroy_channel( lua_State *L )
  ***********************/
 
 /* return the channel where a lua process is blocked at */
-channel *luaproc_get_channel( luaproc *lp )
+channel *luaproc_get_channel (luaproc *lp)
 {
   return lp->chan;
 }
 
 /* return a lua process' status */
-int luaproc_get_status( luaproc *lp )
+int luaproc_get_status (luaproc *lp)
 {
   return lp->status;
 }
 
 /* set lua a process' status */
-void luaproc_set_status( luaproc *lp, int status )
+void luaproc_set_status (luaproc *lp, int status)
 {
   lp->status = status;
 }
 
 /* return a lua process' state */
-lua_State *luaproc_get_state( luaproc *lp )
+lua_State *luaproc_get_state (luaproc *lp)
 {
   return lp->lstate;
 }
 
 /* return the number of arguments expected by a lua process */
-int luaproc_get_numargs( luaproc *lp )
+int luaproc_get_numargs (luaproc *lp)
 {
   return lp->args;
 }
 
 /* set the number of arguments expected by a lua process */
-void luaproc_set_numargs( luaproc *lp, int n )
+void luaproc_set_numargs (luaproc *lp, int n)
 {
   lp->args = n;
 }
@@ -855,8 +845,8 @@ void luaproc_set_numargs( luaproc *lp, int n )
  * register structs and functions *
  **********************************/
 
-static void luaproc_reglualib(
-  lua_State *L, const char *name, lua_CFunction f )
+static void luaproc_reglualib (
+  lua_State *L, const char *name, lua_CFunction f)
 {
   lua_getglobal( L, "package" );
   lua_getfield( L, -1, "preload" );
@@ -865,7 +855,7 @@ static void luaproc_reglualib(
   lua_pop( L, 2 );
 }
 
-static void luaproc_openlualibs( lua_State *L )
+static void luaproc_openlualibs (lua_State *L)
 {
   requiref( L, "_G", luaopen_base, FALSE );
   requiref( L, "package", luaopen_package, TRUE );
@@ -879,7 +869,7 @@ static void luaproc_openlualibs( lua_State *L )
   luaproc_reglualib( L, "utf8", luaopen_utf8 );
 }
 
-LUALIB_API int luaopen_luaproc( lua_State *L )
+LUALIB_API int luaopen_luaproc (lua_State *L)
 {
   /* register luaproc functions */
   luaL_newlib( L, luaproc_funcs );
@@ -922,7 +912,7 @@ LUALIB_API int luaopen_luaproc( lua_State *L )
   return 1;
 }
 
-static int luaproc_loadlib( lua_State *L )
+static int luaproc_loadlib (lua_State *L)
 {
   /* register luaproc functions */
   luaL_newlib( L, luaproc_funcs );
