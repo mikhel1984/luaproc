@@ -12,11 +12,13 @@ luaproc.newproc( [[
   luaproc.newproc( [=[
     -- send a message
     luaproc.send( "achannel", "hello world from luaproc" )
+    print( luaproc.receive( "achannel" ))
   ]=] )
   -- create a receiver lua process
   luaproc.newproc( [=[
     -- receive and print a message
     print( luaproc.receive( "achannel" ))
+    luaproc.send( "achannel", 1, 2, 3 )
   ]=] )
 ]] )
 

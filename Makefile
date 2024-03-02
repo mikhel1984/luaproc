@@ -1,9 +1,9 @@
 # Makefile for building luaproc
 
 # lua version
-LUA_VERSION=5.1
+LUA_VERSION=5.4
 # path to lua header files
-LUA_INCDIR=/usr/include/lua${LUA_VERSION}
+LUA_INCDIR=/usr/local/include
 # path to lua library
 LUA_LIBDIR=/usr/lib/x86_64-linux-gnu/
 # path to install library
