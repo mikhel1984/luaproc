@@ -61,8 +61,8 @@ static void sched_dec_lpcount( void );
  *******************************/
 
 /* worker thread main function */
-int workermain( void *args ) {
-
+int workermain( void *args )
+{
   luaproc *lp;
   int procstat, nresults = 0;
 
@@ -78,7 +78,7 @@ int workermain( void *args ) {
     }
 
     if ( destroyworkers > 0 ) {  /* check whether workers should be destroyed */
-      
+
       destroyworkers--; /* decrease workers to be destroyed count */
       workerscount--; /* decrease active workers count */
 
@@ -106,7 +106,7 @@ int workermain( void *args ) {
 
     /* has the lua process sucessfully finished its execution? */
     if ( procstat == 0 ) {
-      luaproc_set_status( lp, LUAPROC_STATUS_FINISHED );  
+      luaproc_set_status( lp, LUAPROC_STATUS_FINISHED );
       luaproc_recycle_insert( lp );  /* try to recycle finished lua process */
       sched_dec_lpcount();  /* decrease active lua process count */
     }
@@ -129,7 +129,7 @@ int workermain( void *args ) {
       }
 
       /* yield on explicit coroutine.yield call */
-      else { 
+      else {
         /* re-insert the job at the end of the ready process queue */
         mtx_lock( &mutex_sched );
         list_insert( &ready_lp_list, lp );
@@ -145,7 +145,7 @@ int workermain( void *args ) {
       lua_close( luaproc_get_state( lp ));  /* close lua state */
       sched_dec_lpcount();  /* decrease active lua process count */
     }
-  }    
+  }
 
   return 0;
 }
@@ -155,7 +155,8 @@ int workermain( void *args ) {
  **********************/
 
 /* decrease active lua process count */
-static void sched_dec_lpcount( void ) {
+static void sched_dec_lpcount( void )
+{
   mtx_lock( &mutex_lp_count );
   lpcount--;
   /* if count reaches zero, signal there are no more active processes */
@@ -170,15 +171,16 @@ static void sched_dec_lpcount( void ) {
  **********************/
 
 /* increase active lua process count */
-void sched_inc_lpcount( void ) {
+void sched_inc_lpcount( void )
+{
   mtx_lock( &mutex_lp_count );
   lpcount++;
   mtx_unlock( &mutex_lp_count );
 }
 
 /* local scheduler initialization */
-int sched_init( void ) {
-
+int sched_init( void )
+{
   int i;
   thrd_t worker;
 
@@ -221,8 +223,8 @@ int sched_init( void ) {
 }
 
 /* set number of active workers */
-int sched_set_numworkers( int numworkers ) {
-
+int sched_set_numworkers( int numworkers )
+{
   int i, delta;
   thrd_t worker;
 
@@ -267,8 +269,8 @@ int sched_set_numworkers( int numworkers ) {
 }
 
 /* return the number of active workers */
-int sched_get_numworkers( void ) {
-
+int sched_get_numworkers( void )
+{
   int numworkers;
 
   mtx_lock( &mutex_sched );
@@ -279,7 +281,8 @@ int sched_get_numworkers( void ) {
 }
 
 /* insert lua process in ready queue */
-void sched_queue_proc( luaproc *lp ) {
+void sched_queue_proc( luaproc *lp )
+{
   mtx_lock( &mutex_sched );
   list_insert( &ready_lp_list, lp );  /* add process to ready queue */
   /* set process status ready */
@@ -290,10 +293,10 @@ void sched_queue_proc( luaproc *lp ) {
 
 /* join worker threads (called when Lua exits). not joining workers causes a
    race condition since lua_close unregisters dynamic libs with dlclose and
-   thus threads lib can be unloaded while there are workers that are still 
+   thus threads lib can be unloaded while there are workers that are still
    alive. */
-void sched_join_workers( void ) {
-
+void sched_join_workers( void )
+{
   lua_State *L = luaL_newstate();
   const char *wtb = "workerstbcopy";
 
@@ -340,7 +343,7 @@ void sched_join_workers( void ) {
 
   lua_close( workerls );
   lua_close( L );
-  
+
   /* destroy thread elements */
   mtx_destroy(&mutex_sched);
   mtx_destroy(&mutex_lp_count);
@@ -349,13 +352,12 @@ void sched_join_workers( void ) {
 }
 
 /* wait until there are no more active lua processes and active workers. */
-void sched_wait( void ) {
-
+void sched_wait( void )
+{
   /* wait until there are not more active lua processes */
   mtx_lock( &mutex_lp_count );
   if( lpcount != 0 ) {
     cnd_wait( &cond_no_active_lp, &mutex_lp_count );
   }
   mtx_unlock( &mutex_lp_count );
-
 }
