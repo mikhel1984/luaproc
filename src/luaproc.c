@@ -11,6 +11,7 @@
 
 #include "luaproc.h"
 #include "lpsched.h"
+#include "lpaux.h"
 
 #define FALSE 0
 #define TRUE  !FALSE
@@ -85,6 +86,7 @@ struct stluaproc
   lua_State *lstate;
   int status;
   int args;
+  timespec wake_up;
   channel *chan;
   luaproc *next;
 };
@@ -154,6 +156,37 @@ void list_init (list *l)
   l->head = NULL;
   l->tail = NULL;
   l->nodes = 0;
+}
+
+/* sort by time when insert */
+void list_insert_timesort (list* l, luaproc* lp)
+{
+  lp->next = NULL;
+  if ( l->head == NULL ) {
+    /* empty list */
+    l->head = l->tail = lp;
+  } else if ( lpaux_time_cmp( &lp->wake_up, &l->head->wake_up ) < 0 ) {
+    /* smallest time, set first */
+    lp->next = l->head;
+    l->head = lp;
+  } else {
+    luaproc* ptr = l->head;
+    while ( ptr->next != NULL ) {
+      if ( lpaux_time_cmp( &lp->wake_up, &ptr->next->wake_up )) < 0 {
+        /* set between current and next */
+        lp->next = ptr->next;
+        ptr->next = lp;
+        break;
+      }
+      ptr = ptr->next;
+    }
+    /* have not been inserted, add into tail */
+    if ( lp->next == NULL ) {
+      l->tail->next = lp;
+      l->tail = lp;
+    }
+  }
+  l->nodes++;
 }
 
 /*********************
