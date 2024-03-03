@@ -8,6 +8,7 @@
 
 * Lua 5.3+
 * c11 _threads_ instead of _pthread_ library
+* Allow function with arguments
 
 ## Compatibility
 
@@ -17,7 +18,7 @@ This version is compatible with Lua 5.3 and 5.4.
 
 **`luaproc.newproc( string lua_code )`**
 
-**`luaproc.newproc( function f )`**
+**`luaproc.newproc( function f, [arg1], [arg2], [...] )`**
 
 Creates a new Lua process to run the specified string of Lua code or the
 specified Lua function. Returns true if successful or nil and an error message
@@ -26,6 +27,10 @@ the standard Lua base and package libraries. The remaining standard Lua
 libraries (io, os, table, string, math, debug, coroutine and utf8) are
 pre-registered and can be loaded with a call to the standard Lua function
 `require`. 
+
+When additional arguments are defined, the process executes function 
+_f(arg1, arg2,...)_. The types of arguments are the same as in 'send/receive'
+functions.
 
 **`luaproc.setnumworkers( int number_of_workers )`**
 

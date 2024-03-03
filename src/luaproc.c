@@ -398,6 +398,24 @@ static int luaproc_buff_writer (
   return 0;
 }
 
+static int copy_arguments (lua_State* L, luaproc* p)
+{
+  int n = lua_gettop( L );
+  if ( n > 1 ) {
+    for ( int i = 2; i <= n; i++ ) {
+      /* copy arguments */
+      if ( !copy_data( L, p->lstate, i )) {
+        lua_pushnil( L );
+        lua_pushfstring( L, "failed to copy arg of unsupported type '%s'",
+          luaL_typename( L, i ));
+        return FALSE;
+      }
+    }
+    p->args = n - 1;  /* update */
+  }
+  return TRUE;
+}
+
 /* copies upvalues between lua states' stacks */
 static int luaproc_copyupvalues (
   lua_State *Lfrom, lua_State *Lto, int funcindex)
@@ -430,6 +448,7 @@ static int luaproc_copyupvalues (
       return FALSE;
     }
   }
+  lua_pop( Lfrom, 1 );  /* remove function */
   return TRUE;
 }
 
@@ -499,13 +518,14 @@ static int luaproc_create_newproc (lua_State *L)
      a function, dump it into a binary string */
   int lt = lua_type( L, 1 );
   if ( lt == LUA_TFUNCTION ) {
-    lua_settop( L, 1 );
+    lua_rotate( L, 1, -1 );  /* function to the top */
     luaL_Buffer buff;
     luaL_buffinit( L, &buff );
     int d = lua_dump( L, luaproc_buff_writer, &buff, FALSE );
     if ( d != 0 ) {
       lua_pushnil( L );
       lua_pushfstring( L, "error %d dumping function to binary string", d );
+      printf("err %d\n", d);
       return 2;
     }
     luaL_pushresult( &buff );
@@ -549,7 +569,9 @@ static int luaproc_create_newproc (lua_State *L)
   /* if lua process is being created from a function, copy its upvalues and
      remove dumped binary string from stack */
   if ( lt == LUA_TFUNCTION ) {
-    if ( luaproc_copyupvalues( L, lp->lstate, 2 ) == FALSE ) {
+    if ( luaproc_copyupvalues( L, lp->lstate, -1 ) == FALSE 
+      || copy_arguments(L, lp) == FALSE ) 
+    {
       luaproc_recycle_insert( lp );
       return 2;
     }
