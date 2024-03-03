@@ -50,11 +50,18 @@ int lpcount = 0;         /* number of active luaprocs */
 int workerscount = 0;    /* number of active workers */
 int destroyworkers = 0;  /* number of workers to destroy */
 
+/* sleeping processes */
+list sleep_list;
+
+/* update sleep list mutex */
+mtx_t mutex_lp_sleep;
+
 /***********************
  * register prototypes *
  ***********************/
 
 static void sched_dec_lpcount (void);
+static void sched_sleep_activate (void);
 
 /*******************************
  * worker thread main function *
@@ -182,11 +189,14 @@ int sched_init (void)
   /* thread elements */
   mtx_init(&mutex_sched, mtx_plain);
   mtx_init(&mutex_lp_count, mtx_plain);
+  mtx_init(&mutex_lp_sleep, mtx_plain);
   cnd_init(&cond_wakeup_worker);
   cnd_init(&cond_no_active_lp);
 
   /* initialize ready process list */
   list_init( &ready_lp_list );
+
+  list_init( &sleep_list );
 
   /* initialize workers table and lua_State used to store it */
   workerls = luaL_newstate();
@@ -283,6 +293,30 @@ void sched_queue_proc (luaproc *lp)
   mtx_unlock( &mutex_sched );
 }
 
+/* insert lua process in sleep queue */
+void sched_add_sleep (luaproc* lp)
+{
+  mtx_lock( &mutex_lp_sleep );
+  list_time_insert( &sleep_list, lp );
+  luaproc_set_status( lp, LUAPROC_STATUS_BLOCKED_SLEEP );
+  cnd_signal( &cond_wakeup_worker );  /* update worker state */
+  mtx_unlock( &mutex_lp_sleep );
+}
+
+/* check sleep process, wake up if need,
+   mutex_sched must be locked! */
+static void sched_sleep_activate (void)
+{
+  mtx_lock( &mutex_lp_sleep );
+  timespec current;
+  timespec_get(&current, TIME_UTC);
+  while(( luaproc* p = list_time_ready ( &sleep_list, &current )) != NULL ) {
+    /* activate */
+    list_insert( &ready_lp_list, p );
+  }
+  mtx_unlock( &mutex_lp_sleep );
+}
+
 /* join worker threads (called when Lua exits). not joining workers causes a
    race condition since lua_close unregisters dynamic libs with dlclose and
    thus threads lib can be unloaded while there are workers that are still
@@ -339,6 +373,7 @@ void sched_join_workers (void)
   /* destroy thread elements */
   mtx_destroy(&mutex_sched);
   mtx_destroy(&mutex_lp_count);
+  mtx_destroy(&mutex_lp_sleep);
   cnd_destroy(&cond_wakeup_worker);
   cnd_destroy(&cond_no_active_lp);
 }

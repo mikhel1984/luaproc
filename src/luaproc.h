@@ -6,6 +6,8 @@
 #ifndef _LUA_LUAPROC_H_
 #define _LUA_LUAPROC_H_
 
+#include "lpaux.h"
+
 /*************************************
  * execution status of lua processes *
  ************************************/
@@ -15,6 +17,7 @@
 #define LUAPROC_STATUS_BLOCKED_SEND   2
 #define LUAPROC_STATUS_BLOCKED_RECV   3
 #define LUAPROC_STATUS_FINISHED       4
+#define LUAPROC_STATUS_BLOCKED_SLEEP  5
 
 /*******************
  * structure types *
@@ -76,6 +79,15 @@ luaproc* list_remove( list *l );
 
 /* return a list's node count */
 int list_count( list *l );
+
+/* sort by time when insert */
+void list_time_insert (list* l, luaproc* lp);
+
+/* get next wake up time or NULL */
+timespec* list_time_next (list* l);
+
+/* get ready to wake up processes */
+luaproc* list_time_ready (list* l, timespec* current)
 
 /* }====================================================================== */
 

@@ -26,3 +26,12 @@ void lpaux_time_inc (timespec* t, timespec* diff)
     t->tv_sec += 1;
   }
 }
+
+/* split to seconds and nanoseconds */
+timespec lpaux_time_period (double sec)
+{
+  timespec t;
+  t.tv_sec = (int) sec;
+  t.tv_nsec = (int) ((sec - t.tv_sec) * 1E9);
+  return t;
+}

@@ -11,7 +11,6 @@
 
 #include "luaproc.h"
 #include "lpsched.h"
-#include "lpaux.h"
 
 #define FALSE 0
 #define TRUE  !FALSE
@@ -159,7 +158,7 @@ void list_init (list *l)
 }
 
 /* sort by time when insert */
-void list_insert_timesort (list* l, luaproc* lp)
+void list_time_insert (list* l, luaproc* lp)
 {
   lp->next = NULL;
   if ( l->head == NULL ) {
@@ -187,6 +186,21 @@ void list_insert_timesort (list* l, luaproc* lp)
     }
   }
   l->nodes++;
+}
+
+/* get next wake up time or NULL */
+timespec* list_time_next (list* l)
+{
+  return (l->head == NULL) ? NULL : &l->head->wake_up;
+}
+
+/* get ready to wake up processes */
+luaproc* list_time_ready (list* l, timespec* current)
+{
+  if ( l->head != NULL && lpaux_time_cmp( &l->head->wake_up, current ) < 1 ) {
+    return list_remove( l );
+  }
+  return NULL;
 }
 
 /*********************
