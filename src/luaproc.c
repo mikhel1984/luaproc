@@ -292,6 +292,7 @@ static void luaproc_loadbuffer (
   }
 }
 
+/* get elements betwee Lua states */
 static int copy_data (lua_State* Lfrom, lua_State* Lto, int ind)
 {
   const char* str = NULL;
@@ -398,6 +399,7 @@ static int luaproc_buff_writer (
   return 0;
 }
 
+/* copy arguments of the process function */
 static int copy_arguments (lua_State* L, luaproc* p)
 {
   int n = lua_gettop( L );
