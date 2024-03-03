@@ -525,7 +525,6 @@ static int luaproc_create_newproc (lua_State *L)
     if ( d != 0 ) {
       lua_pushnil( L );
       lua_pushfstring( L, "error %d dumping function to binary string", d );
-      printf("err %d\n", d);
       return 2;
     }
     luaL_pushresult( &buff );
