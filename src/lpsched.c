@@ -12,6 +12,7 @@
 
 #include "lpsched.h"
 #include "luaproc.h"
+#include "lpaux.h"
 
 #define FALSE 0
 #define TRUE  !FALSE
@@ -53,9 +54,6 @@ int destroyworkers = 0;  /* number of workers to destroy */
 /* sleeping processes */
 list sleep_list;
 
-/* update sleep list mutex */
-mtx_t mutex_lp_sleep;
-
 /***********************
  * register prototypes *
  ***********************/
@@ -78,7 +76,14 @@ int workermain (void *args)
     */
     mtx_lock( &mutex_sched );
     while ( list_count( &ready_lp_list ) == 0 && destroyworkers <= 0 ) {
-      cnd_wait( &cond_wakeup_worker, &mutex_sched );
+      if ( list_count ( &sleep_list ) == 0 ) {
+        cnd_wait( &cond_wakeup_worker, &mutex_sched );
+      } else {
+        // wait for specific time moment
+        cnd_timedwait( &cond_wakeup_worker, &mutex_sched, 
+          list_time_next( &sleep_list ));
+        sched_sleep_activate();
+      }
     }
 
     if ( destroyworkers > 0 ) {  /* check whether workers should be destroyed */
@@ -131,6 +136,13 @@ int workermain (void *args)
         luaproc_queue_receiver( lp );  /* queue lua process on channel */
         /* unlock channel */
         luaproc_unlock_channel( luaproc_get_channel( lp ));
+      }
+
+      /* sleep */
+      else if ( luaproc_get_status( lp ) == LUAPROC_STATUS_BLOCKED_SLEEP ) {
+        mtx_lock( &mutex_sched );
+        list_time_insert( &sleep_list, lp );
+        mtx_unlock( &mutex_sched );
       }
 
       /* yield on explicit coroutine.yield call */
@@ -189,7 +201,6 @@ int sched_init (void)
   /* thread elements */
   mtx_init(&mutex_sched, mtx_plain);
   mtx_init(&mutex_lp_count, mtx_plain);
-  mtx_init(&mutex_lp_sleep, mtx_plain);
   cnd_init(&cond_wakeup_worker);
   cnd_init(&cond_no_active_lp);
 
@@ -294,27 +305,26 @@ void sched_queue_proc (luaproc *lp)
 }
 
 /* insert lua process in sleep queue */
-void sched_add_sleep (luaproc* lp)
-{
-  mtx_lock( &mutex_lp_sleep );
-  list_time_insert( &sleep_list, lp );
-  luaproc_set_status( lp, LUAPROC_STATUS_BLOCKED_SLEEP );
-  cnd_signal( &cond_wakeup_worker );  /* update worker state */
-  mtx_unlock( &mutex_lp_sleep );
-}
+//void sched_add_sleep (luaproc* lp)
+//{
+//  mtx_lock( &mutex_sched );
+//  list_time_insert( &sleep_list, lp );
+//  luaproc_set_status( lp, LUAPROC_STATUS_BLOCKED_SLEEP );
+//  cnd_signal( &cond_wakeup_worker );  /* update worker state */
+//  mtx_unlock( &mutex_sched );
+//}
 
 /* check sleep process, wake up if need,
    mutex_sched must be locked! */
 static void sched_sleep_activate (void)
 {
-  mtx_lock( &mutex_lp_sleep );
   timespec current;
   timespec_get(&current, TIME_UTC);
-  while(( luaproc* p = list_time_ready ( &sleep_list, &current )) != NULL ) {
+  luaproc* p;
+  while(( p = list_time_ready ( &sleep_list, &current )) != NULL ) {
     /* activate */
     list_insert( &ready_lp_list, p );
   }
-  mtx_unlock( &mutex_lp_sleep );
 }
 
 /* join worker threads (called when Lua exits). not joining workers causes a
@@ -373,7 +383,6 @@ void sched_join_workers (void)
   /* destroy thread elements */
   mtx_destroy(&mutex_sched);
   mtx_destroy(&mutex_lp_count);
-  mtx_destroy(&mutex_lp_sleep);
   cnd_destroy(&cond_wakeup_worker);
   cnd_destroy(&cond_no_active_lp);
 }

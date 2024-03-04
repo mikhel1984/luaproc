@@ -11,6 +11,7 @@
 
 #include "luaproc.h"
 #include "lpsched.h"
+#include "lpaux.h"
 
 #define FALSE 0
 #define TRUE  !FALSE
@@ -72,6 +73,7 @@ static int luaproc_destroy_channel( lua_State *L );
 static int luaproc_set_numworkers( lua_State *L );
 static int luaproc_get_numworkers( lua_State *L );
 static int luaproc_recycle_set( lua_State *L );
+static int luaproc_sleep( lua_State* L );
 LUALIB_API int luaopen_luaproc( lua_State *L );
 static int luaproc_loadlib( lua_State *L );
 
@@ -110,6 +112,7 @@ static const struct luaL_Reg luaproc_funcs[] = {
   { "setnumworkers", luaproc_set_numworkers },
   { "getnumworkers", luaproc_get_numworkers },
   { "recycle", luaproc_recycle_set },
+  { "sleep", luaproc_sleep },
   { NULL, NULL }
 };
 
@@ -171,7 +174,7 @@ void list_time_insert (list* l, luaproc* lp)
   } else {
     luaproc* ptr = l->head;
     while ( ptr->next != NULL ) {
-      if ( lpaux_time_cmp( &lp->wake_up, &ptr->next->wake_up )) < 0 {
+      if ( lpaux_time_cmp( &lp->wake_up, &ptr->next->wake_up ) < 0 ){
         /* set between current and next */
         lp->next = ptr->next;
         ptr->next = lp;
@@ -556,6 +559,34 @@ static int luaproc_get_numworkers (lua_State *L)
 {
   lua_pushnumber( L, sched_get_numworkers() );
   return 1;
+}
+
+/* stop execution for some time */
+static int luaproc_sleep (lua_State* L)
+{
+  timespec dur;
+  int lt = lua_type( L, 1 );
+
+  if ( lt == LUA_TNUMBER ) {
+    double v = lua_tonumber( L, 1 );
+    luaL_argcheck( L, v > 0, 1, "period must be positive" );
+    dur = lpaux_time_period( v );
+  } else {
+    luaL_error( L, "unexpected argument" );
+  }
+
+  if ( L == mainlp.lstate ) {
+    thrd_sleep(&dur, NULL);
+    return 0;
+  } else {
+    luaproc* self = luaproc_getself( L );
+    if ( self != NULL ) {  // ???
+      timespec_get( &self->wake_up, TIME_UTC );
+      lpaux_time_inc( &self->wake_up, &dur );
+      self->status = LUAPROC_STATUS_BLOCKED_SLEEP;
+    }
+    return lua_yield( L, 0 );
+  }
 }
 
 /* create and schedule a new lua process */

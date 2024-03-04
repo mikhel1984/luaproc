@@ -6,8 +6,6 @@
 #ifndef _LUA_LUAPROC_H_
 #define _LUA_LUAPROC_H_
 
-#include "lpaux.h"
-
 /*************************************
  * execution status of lua processes *
  ************************************/
@@ -22,6 +20,8 @@
 /*******************
  * structure types *
  ******************/
+
+struct timespec;
 
 typedef struct stluaproc luaproc; /* lua process */
 
@@ -84,10 +84,10 @@ int list_count( list *l );
 void list_time_insert (list* l, luaproc* lp);
 
 /* get next wake up time or NULL */
-timespec* list_time_next (list* l);
+struct timespec* list_time_next (list* l);
 
 /* get ready to wake up processes */
-luaproc* list_time_ready (list* l, timespec* current)
+luaproc* list_time_ready (list* l, struct timespec* current);
 
 /* }====================================================================== */
 

@@ -8,6 +8,8 @@
 
 #include <time.h>
 
+typedef struct timespec timespec;
+
 int lpaux_time_cmp (timespec* t1, timespec* t2);
 
 void lpaux_time_inc (timespec* t, timespec* diff);

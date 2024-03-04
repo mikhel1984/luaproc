@@ -19,7 +19,7 @@ CFLAGS=-c -O2 -Wall -fPIC -I${LUA_INCDIR}
 LIBFLAG=-shared
 #
 LDFLAGS=${LIBFLAG} -L${LUA_LIBDIR} -lpthread 
-SOURCES=${SRCDIR}/lpsched.c ${SRCDIR}/luaproc.c
+SOURCES=${SRCDIR}/lpsched.c ${SRCDIR}/luaproc.c ${SRCDIR}/lpaux.c
 OBJECTS=${SOURCES:.c=.o}
 
 # luaproc specific variables
@@ -32,10 +32,13 @@ all: ${BINDIR}/${LIB}
 ${BINDIR}/${LIB}: ${OBJECTS}
 	${CC} $^ -o $@ ${LDFLAGS} 
 
-lpsched.o: lpsched.c lpsched.h luaproc.h
+lpsched.o: lpsched.c lpsched.h luaproc.h lpaux.h
 	${CC} ${CFLAGS} $^
 
-luaproc.o: luaproc.c luaproc.h lpsched.h
+luaproc.o: luaproc.c luaproc.h lpsched.h lpaux.h
+	${CC} ${CFLAGS} $^
+
+lpaux.o: lpaux.c lpaux.h
 	${CC} ${CFLAGS} $^
 
 install: 

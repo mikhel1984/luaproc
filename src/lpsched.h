@@ -41,7 +41,5 @@ void sched_inc_lpcount( void );
 int sched_set_numworkers( int numworkers );
 /* return the number of active workers */
 int sched_get_numworkers( void );
-/* insert lua process in sleep queue */
-void sched_add_sleep (luaproc* lp);
 
 #endif
