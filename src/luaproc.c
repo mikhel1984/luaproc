@@ -76,6 +76,7 @@ static int luaproc_get_numworkers( lua_State *L );
 static int luaproc_recycle_set( lua_State *L );
 static int luaproc_sleep( lua_State* L );
 static int luaproc_period( lua_State* L );
+static int luaproc_broadcast (lua_State* L);
 LUALIB_API int luaopen_luaproc( lua_State *L );
 static int luaproc_loadlib( lua_State *L );
 
@@ -124,6 +125,7 @@ static const struct luaL_Reg luaproc_funcs[] = {
   { "recycle", luaproc_recycle_set },
   { "sleep", luaproc_sleep },
   { "period", luaproc_period },
+  { "broadcast", luaproc_broadcast },
   { NULL, NULL }
 };
 
@@ -841,6 +843,49 @@ static int luaproc_receive (lua_State *L)
     }
 
   }
+}
+
+static int luaproc_broadcast (lua_State* L)
+{
+  const char *chname = luaL_checkstring( L, 1 );
+  channel* chan = channel_locked_get( chname );
+
+  /* if channel is not found, return an error to lua */
+  if ( chan == NULL ) {
+    lua_pushnil( L );
+    lua_pushfstring( L, "channel '%s' does not exist", chname );
+    return 2;
+  }
+  
+  int success = FALSE;
+  while ( list_count( &chan->recv )) {
+    luaproc* dst = list_remove( &chan->recv );
+    int ret = luaproc_copyvalues( L, dst->lstate );
+    dst->args = lua_gettop( dst->lstate ) - 1;
+    if ( dst->lstate == mainlp.lstate ) {
+      mtx_lock( &mutex_mainls );
+      cnd_signal( &cond_mainls_sendrecv );
+      mtx_unlock( &mutex_mainls );
+    } else {
+      sched_queue_proc( dst );
+    }
+    if ( ret == FALSE ) {
+      luaproc_unlock_channel( chan );
+      return 2;  /* nil and error on the stack */
+    }
+    success = TRUE;
+  }
+
+  luaproc_unlock_channel( chan );
+
+  if ( success ) {
+    lua_pushboolean( L, TRUE );
+    return 1;
+  }
+
+  lua_pushnil( L );
+  lua_pushstring( L, "no one receive" );
+  return 2;
 }
 
 /* create a new channel */
