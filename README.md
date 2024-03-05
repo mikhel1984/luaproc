@@ -9,6 +9,7 @@
 * Lua 5.3+
 * c11 _threads_ instead of _pthread_ library
 * Allow function with arguments
+* Add sleeping
 
 ## Compatibility
 
@@ -89,7 +90,7 @@ Stop execution for some time. The period can be defined using positive number or
 userdata object. In the second case time of awakening is estimated from moment of
 the object creation, which makes it more precise for repeated calls.
 
-**'luaproc.period( double seconds )'**
+**`luaproc.period( double seconds )`**
 
 Creates an object with constant period.
 
