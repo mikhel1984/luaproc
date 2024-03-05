@@ -77,6 +77,7 @@ static int luaproc_recycle_set( lua_State *L );
 static int luaproc_sleep( lua_State* L );
 static int luaproc_period( lua_State* L );
 static int luaproc_broadcast (lua_State* L);
+static int luaproc_isopen (lua_State* L);
 LUALIB_API int luaopen_luaproc( lua_State *L );
 static int luaproc_loadlib( lua_State *L );
 
@@ -126,6 +127,7 @@ static const struct luaL_Reg luaproc_funcs[] = {
   { "sleep", luaproc_sleep },
   { "period", luaproc_period },
   { "broadcast", luaproc_broadcast },
+  { "isopen", luaproc_isopen },
   { NULL, NULL }
 };
 
@@ -843,6 +845,19 @@ static int luaproc_receive (lua_State *L)
     }
 
   }
+}
+
+static int luaproc_isopen (lua_State* L)
+{
+  const char *chname = luaL_checkstring( L, 1 );
+  channel* chan = channel_locked_get( chname );
+  if ( chan == NULL ) {
+    lua_pushboolean( L, FALSE );
+  } else {
+    luaproc_unlock_channel( chan );
+    lua_pushboolean( L, TRUE );
+  }
+  return 1;
 }
 
 static int luaproc_broadcast (lua_State* L)

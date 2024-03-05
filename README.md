@@ -10,6 +10,8 @@
 * c11 _threads_ instead of _pthread_ library
 * Allow function with arguments
 * Add sleeping
+* Check if the channel is open
+* Add broadcasting
 
 ## Compatibility
 
@@ -93,6 +95,15 @@ the object creation, which makes it more precise for repeated calls.
 **`luaproc.period( double seconds )`**
 
 Creates an object with constant period.
+
+**`luaproc.isopen( string channel_name )`**
+
+Returns true if the channel is open.
+
+**`luaproc.broadcast( string channel_name, msg1, [msg2], [...] )`**
+
+Sends messages to all the waited processes. Works in async mode, if there 
+are no receivers then returns nil.
 
 ## License
 
