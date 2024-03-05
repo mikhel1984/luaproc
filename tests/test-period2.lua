@@ -6,16 +6,17 @@ luaproc.setnumworkers( 1 )
 luaproc.newchannel('c1')
 
 luaproc.newproc(function () 
-  for i = 1, 5 do
+  for i = 1, 4 do
     luaproc.send('c1', i, 'proc1')
     luaproc.sleep(1.0)
   end
 end)
 
 luaproc.newproc(function () 
-  for i = 1, 4 do
+  local p = luaproc.period(1.0)
+  for i = 1, 5 do
     luaproc.send('c1', i, 'proc2')
-    luaproc.sleep(1.0)
+    luaproc.sleep(p)
   end
 end)
 

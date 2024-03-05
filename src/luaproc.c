@@ -17,6 +17,7 @@
 #define TRUE  !FALSE
 #define LUAPROC_CHANNELS_TABLE "channeltb"
 #define LUAPROC_RECYCLE_MAX 0
+#define RATE_MARKER 0xdecada42
 
 
 #define requiref( L, modname, f, glob ) \
@@ -74,6 +75,7 @@ static int luaproc_set_numworkers( lua_State *L );
 static int luaproc_get_numworkers( lua_State *L );
 static int luaproc_recycle_set( lua_State *L );
 static int luaproc_sleep( lua_State* L );
+static int luaproc_period( lua_State* L );
 LUALIB_API int luaopen_luaproc( lua_State *L );
 static int luaproc_loadlib( lua_State *L );
 
@@ -101,6 +103,14 @@ struct stchannel
   cnd_t can_be_used;
 };
 
+typedef struct 
+{
+  int marker;
+  timespec time;
+  timespec period;
+
+} lprate;
+
 /* luaproc function registration array */
 static const struct luaL_Reg luaproc_funcs[] = {
   { "newproc", luaproc_create_newproc },
@@ -113,6 +123,7 @@ static const struct luaL_Reg luaproc_funcs[] = {
   { "getnumworkers", luaproc_get_numworkers },
   { "recycle", luaproc_recycle_set },
   { "sleep", luaproc_sleep },
+  { "period", luaproc_period },
   { NULL, NULL }
 };
 
@@ -561,6 +572,21 @@ static int luaproc_get_numworkers (lua_State *L)
   return 1;
 }
 
+/* make object for 'precise' sleeping */
+static int luaproc_period (lua_State* L)
+{
+  double v = luaL_checknumber( L, 1 );
+  luaL_argcheck( L, v > 0, 1, "period must be positive" );
+
+  lprate* rate = (lprate*) lua_newuserdata( L, sizeof( lprate ));
+  /* initialize */
+  rate->marker = RATE_MARKER;
+  rate->period = lpaux_time_period( v );
+  timespec_get( &rate->time, TIME_UTC );
+
+  return 1;
+}
+
 /* stop execution for some time */
 static int luaproc_sleep (lua_State* L)
 {
@@ -571,6 +597,19 @@ static int luaproc_sleep (lua_State* L)
     double v = lua_tonumber( L, 1 );
     luaL_argcheck( L, v > 0, 1, "period must be positive" );
     dur = lpaux_time_period( v );
+
+  } else if ( lt == LUA_TUSERDATA ) {
+    lprate* rate = (lprate*) lua_touserdata( L, 1 );
+    luaL_argcheck( L, rate->marker == RATE_MARKER, 1, "unexpected argument" );
+    /* find period */
+    timespec curr;
+    timespec_get( &curr, TIME_UTC );
+    while ( lpaux_time_cmp( &rate->time, &curr ) < 1 ) {
+      lpaux_time_inc( &rate->time, &rate->period );
+    }
+    dur = rate->time;
+    lpaux_time_dec( &dur, &curr );
+
   } else {
     luaL_error( L, "unexpected argument" );
   }

@@ -304,16 +304,6 @@ void sched_queue_proc (luaproc *lp)
   mtx_unlock( &mutex_sched );
 }
 
-/* insert lua process in sleep queue */
-//void sched_add_sleep (luaproc* lp)
-//{
-//  mtx_lock( &mutex_sched );
-//  list_time_insert( &sleep_list, lp );
-//  luaproc_set_status( lp, LUAPROC_STATUS_BLOCKED_SLEEP );
-//  cnd_signal( &cond_wakeup_worker );  /* update worker state */
-//  mtx_unlock( &mutex_sched );
-//}
-
 /* check sleep process, wake up if need,
    mutex_sched must be locked! */
 static void sched_sleep_activate (void)

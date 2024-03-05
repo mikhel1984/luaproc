@@ -23,7 +23,18 @@ void lpaux_time_inc (timespec* t, timespec* diff)
   t->tv_nsec += diff->tv_nsec;
   if ( t->tv_nsec >= NSINSEC ) {
     t->tv_nsec -= NSINSEC;
-    t->tv_sec += 1;
+    t->tv_sec ++;
+  }
+}
+
+/* decrease time */
+void lpaux_time_dec (timespec* t, timespec* diff)
+{
+  t->tv_sec -= diff->tv_sec;
+  t->tv_nsec -= diff->tv_nsec;
+  if ( t->tv_nsec < 0 ) {
+    t->tv_nsec += NSINSEC;
+    t->tv_sec --; 
   }
 }
 

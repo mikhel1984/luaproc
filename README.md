@@ -81,6 +81,18 @@ and an error message if failed. Lua processes waiting to send or receive
 messages on destroyed channels have their execution resumed and receive an error
 message indicating the channel was destroyed. 
 
+**`luaproc.sleep( double seconds )`**
+
+**`luaproc.sleep( userdata period )`**
+
+Stop execution for some time. The period can be defined using positive number or
+userdata object. In the second case time of awakening is estimated from moment of
+the object creation, which makes it more precise for repeated calls.
+
+**'luaproc.period( double seconds )'**
+
+Creates an object with constant period.
+
 ## License
 
 Copyright © 2008-2015 Alexandre Skyrme, Noemi Rodriguez, Roberto Ierusalimschy.
