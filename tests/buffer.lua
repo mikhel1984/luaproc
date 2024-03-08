@@ -45,7 +45,7 @@ local cout = assert(buff_channel(cin, 3))
 assert(
 luaproc.newproc(function ()
   while luaproc.isopen(cout) do
-    print('proc2', luaproc.receive(cout))
+    print('proc2 recv', luaproc.receive(cout))
     luaproc.sleep(1.0)    
   end  
 end))
